@@ -1,5 +1,4 @@
 
-// Jito Bundling part
 
 import { Connection, Keypair, PublicKey, VersionedTransaction } from "@solana/web3.js"
 import { blockengingUrl, jitoFee, jitoKeyStr, rpc, wss } from "../config"
@@ -48,6 +47,7 @@ export async function bull_dozer(txs: VersionedTransaction[], keypair: Keypair) 
     const bundle_result = await onBundleResult(search)
     return bundle_result
   } catch (error) {
+    console.log("bull_dozer error: ", error)
     return 0
   }
 }
@@ -80,7 +80,7 @@ async function build_bundle(
   }
   try {
     await search.sendBundle(maybeBundle)
-  } catch (e) { }
+  } catch (e) {}
   return maybeBundle
 }
 
@@ -120,6 +120,8 @@ export const onBundleResult = (c: SearcherClient): Promise<number> => {
     )
   })
 }
+
+
 
 
 
