@@ -1,4 +1,6 @@
 import axios from 'axios';
+import fs from 'fs'
+
 
 export async function findData(data: any, field: string): Promise<any | null> {
   if (typeof data === 'object') {
@@ -49,3 +51,23 @@ export async function getCoinData(mintStr: string): Promise<any | null> {
     return null;
   }
 }
+
+export function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+
+// Function to save data to JSON file
+export const saveDataToFile = (data: any, filePath: string = "data.json") => {
+  try {
+    // Convert data to JSON format
+    const jsonData = JSON.stringify(data);
+
+    // Write JSON data to file
+    fs.writeFileSync(filePath, jsonData);
+
+    console.log('Data saved to JSON file successfully.');
+  } catch (error) {
+    console.error('Error saving data to JSON file:', error);
+  }
+};
