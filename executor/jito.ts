@@ -34,7 +34,7 @@ export async function bundle(txs: VersionedTransaction[], keypair: Keypair) {
 
 export async function bull_dozer(txs: VersionedTransaction[], keypair: Keypair) {
   try {
-    const bundleTransactionLimit = parseInt('4')
+    const bundleTransactionLimit = parseInt('5')
     const jitoKey = Keypair.fromSecretKey(base58.decode(jitoKeyStr))
     const search = searcherClient(blockengingUrl, jitoKey)
 
@@ -65,7 +65,7 @@ async function build_bundle(
   const tipAccount = new PublicKey(_tipAccount)
 
   const bund = new Bundle([], bundleTransactionLimit)
-  const resp = await solanaConnection.getLatestBlockhash("processed")
+  const resp = await solanaConnection.getLatestBlockhash()
   bund.addTransactions(...txs)
 
   let maybeBundle = bund.addTipTx(
@@ -104,13 +104,14 @@ export const onBundleResult = (c: SearcherClient): Promise<number> => {
         if (isResolved == false) {
 
           if (isAccepted) {
-            // console.log(`bundle accepted, ID: ${result.bundleId}  | Slot: ${result.accepted!.slot}`)
+            console.log(`bundle accepted, ID: ${result.bundleId}  | Slot: ${result.accepted!.slot}`)
             first += 1
             isResolved = true
             resolve(first) // Resolve with 'first' when a bundle is accepted
           }
           if (isRejected) {
             // Do not resolve or reject the promise here
+            console.log("Bundle is not accepted")
           }
         }
       },

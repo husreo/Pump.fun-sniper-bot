@@ -1,3 +1,6 @@
 node_modules
 node_modules/*
 config.ts
+data0.json
+data1.json
+data2.json

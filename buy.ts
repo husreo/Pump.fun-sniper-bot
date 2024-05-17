@@ -1,5 +1,5 @@
 import { PublicKey, TransactionInstruction, VersionedTransaction, ComputeBudgetProgram, TransactionMessage, LAMPORTS_PER_SOL, Connection, Version, Keypair, Transaction } from '@solana/web3.js';
-import { NATIVE_MINT, createAssociatedTokenAccountInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
+import { ASSOCIATED_TOKEN_PROGRAM_ID, NATIVE_MINT, TOKEN_PROGRAM_ID, createAssociatedTokenAccountInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
 import { connection, deployerPubkey, payerKeypair, mint, totalPercent, initialSolAmount, initialTokenAmount, privateKeys, distributionPerWallet, tokenDecimal } from './config';
 import { generateDistribution, getCoinData, saveDataToFile, sleep } from "./utils"
 import {
@@ -30,13 +30,18 @@ async function buy(
     console.log("Payer wallet public key is", payerKeypair.publicKey.toBase58())
     // Get coin data
     const coinData = await getCoinData(mintStr);
+    console.log("🚀 ~ coinData:", coinData)
 
     if (!coinData) {
       console.log("Failed to retrieve coin data...");
       return;
     }
+    if(keypairs.length !== solIns.length){
+      console.log("Number of wallets doesn not match")
+      return
+    }
 
-    for (let i = 0; i < solIns.length; i++) {
+    for (let i = 0; i < keypairs.length; i++) {
       const buyer = Keypair.fromSecretKey(base58.decode(keypairs[i]))
       const owner = buyer.publicKey;
       const tokenMint = new PublicKey(mintStr);
@@ -48,15 +53,16 @@ async function buy(
 
       // Attempt to retrieve token account, otherwise create associated token account
       try {
-        tokenAccount = await getAssociatedTokenAddress(tokenMint, buyer.publicKey)
+        tokenAccount = await getAssociatedTokenAddress(tokenMint, owner)
         const info = await connection.getAccountInfo(tokenAccount)
+        console.log("🚀 ~ info:", info)
         if (!info) {
           ixs.push(
             createAssociatedTokenAccountInstruction(
-              buyer.publicKey,
+              owner,
               tokenAccount,
-              buyer.publicKey,
-              tokenMint
+              owner,
+              tokenMint,
             )
           )
         }
@@ -119,11 +125,11 @@ async function buy(
 
       const tx = new Transaction().add(...ixs)
       tx.recentBlockhash = blockhash
-      tx.feePayer = buyer.publicKey
+      tx.feePayer = owner
       console.log(await connection.simulateTransaction(tx))
       // Compile message
       const messageV0 = new TransactionMessage({
-        payerKey: buyer.publicKey,
+        payerKey: owner,
         recentBlockhash: blockhash,
         instructions: ixs,
       }).compileToV0Message()
@@ -143,33 +149,32 @@ async function buy(
     const ata = await getAssociatedTokenAddress(tokenMint, kp.publicKey)
     console.log("Checking the result")
     while (true) {
-      if (index > 30) {
+      if (index > 40) {
         console.log("token sniping failed")
         return
       }
       try {
         const tokenBalance = (await connection.getTokenAccountBalance(ata)).value.uiAmount
-        if(tokenBalance && tokenBalance > 0)
+        if (tokenBalance && tokenBalance > 0)
           break
       } catch (error) {
         index++
         await sleep(2000)
       }
     }
-    
-    for(let i = 0; i < keypairs.length; i++){
+
+    for (let i = 0; i < keypairs.length; i++) {
       const kpsToSend: Keypair[] = []
       for (let j = 0; j < distributionPerWallet; j++)
         kpsToSend.push(Keypair.generate())
       saveDataToFile(kpsToSend.map(kp => base58.encode(kp.secretKey)), `data${i}.json`)
-      const mainKp = Keypair.fromSecretKey(base58.decode(keypairs[i])) 
+      const mainKp = Keypair.fromSecretKey(base58.decode(keypairs[i]))
       const ata = await getAssociatedTokenAddress(tokenMint, kp.publicKey)
       const tokenBalance = (await connection.getTokenAccountBalance(ata)).value.uiAmount
       const amounts = generateDistribution(tokenBalance!, 0, tokenBalance!, distributionPerWallet, "random")
-      sendBulkToken(kpsToSend, amounts, mainKp, tokenMint, tokenDecimal)
-
+      await sendBulkToken(kpsToSend, amounts, mainKp, tokenMint, tokenDecimal)
+      await sleep(5000)
     }
-
 
     console.log("Bundling result confirmed, successfully bought")
 
@@ -220,4 +225,31 @@ function calcSolAmount(totalPercent: number, initialSolAmount: number, walletNum
 // buy(privateKeys, mint, [0.001, 0.001, 0.001], 0.9)
 
 // run this to track wallet's creation tx
-trackWallet(connection, mint).catch(e => console.log(e))
+// trackWallet(connection, mint).catch(e => console.log(e))
+
+
+
+
+const distribute = async() => {
+  for (let i = 0; i < privateKeys.length; i++) {
+    const kpsToSend: Keypair[] = []
+    for (let j = 0; j < distributionPerWallet; j++)
+      kpsToSend.push(Keypair.generate())
+    saveDataToFile(kpsToSend.map(kp => base58.encode(kp.secretKey)), `data${i}.json`)
+    const mainKp = Keypair.fromSecretKey(base58.decode(privateKeys[i]))
+    const tokenMint = new PublicKey(mint)
+    const ata = await getAssociatedTokenAddress(tokenMint, mainKp.publicKey)
+    const tokenBalance = (await connection.getTokenAccountBalance(ata)).value.uiAmount
+    if(!tokenBalance){
+      console.log("Wallet does not have token in it")
+      return
+    }
+    const amounts = generateDistribution(tokenBalance! / 3 , (tokenBalance! / distributionPerWallet  / 6), (tokenBalance! / distributionPerWallet  * 2 / 3), distributionPerWallet, "random")   ////////////// need to delete /3 after 
+    console.log(" distribute ~ amounts:", amounts)
+    await sendBulkToken(kpsToSend, amounts, mainKp, tokenMint, tokenDecimal)
+    await sleep(5000)
+  }
+
+  console.log("Bundling result confirmed, successfully bought")
+}
+distribute()

@@ -2,6 +2,7 @@ import { Keypair, PublicKey, Transaction, TransactionInstruction, TransactionMes
 import { bundle } from "./executor/jito";
 import { createAssociatedTokenAccountInstruction, createTransferInstruction, getAssociatedTokenAddress, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
 import { connection } from "./config";
+import { sleep } from "./utils";
 
 interface Drop {
   walletAddress: PublicKey,
@@ -25,6 +26,7 @@ export async function sendBulkToken(
 
   const transactionList1 = await generateATA(NUM_DROPS_PER_TX, dropList, walletKeypair, mintAddress);
   const result1 = await bundle(transactionList1, walletKeypair)
+  await sleep(20000)
 
   const transactionList2 = await generateTransactions(NUM_DROPS_PER_TX, dropList, walletKeypair, mintAddress, tokenDecimal);
   const result2 = await bundle(transactionList2, walletKeypair)
@@ -61,7 +63,7 @@ async function generateATA(batchSize: number, dropList: Drop[], keypair: Keypair
     }
   }
   const numTransactions = Math.ceil(txInstructions.length / batchSize);
-  for (let i = 0; i < numTransactions; i++) {
+  for (let i = 0; i < numTransactions; i++) { 
     let blockhash = await connection
       .getLatestBlockhash()
       .then((res: any) => res.blockhash);
