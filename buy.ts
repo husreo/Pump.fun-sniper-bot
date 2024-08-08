@@ -1,6 +1,6 @@
-import { PublicKey, TransactionInstruction, VersionedTransaction, ComputeBudgetProgram, TransactionMessage, LAMPORTS_PER_SOL, Connection, Version, Keypair, Transaction } from '@solana/web3.js';
-import { ASSOCIATED_TOKEN_PROGRAM_ID, NATIVE_MINT, TOKEN_PROGRAM_ID, createAssociatedTokenAccountInstruction, getAssociatedTokenAddress } from '@solana/spl-token';
-import { connection, deployerPubkey, payerKeypair, mint, totalPercent, initialSolAmount, initialTokenAmount, privateKeys, distributionPerWallet, tokenDecimal } from './config';
+import { PublicKey, TransactionInstruction, VersionedTransaction, TransactionMessage, LAMPORTS_PER_SOL, Connection, Keypair, Transaction, ComputeBudgetProgram } from '@solana/web3.js';
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, createAssociatedTokenAccountInstruction, getAssociatedTokenAddress, getMint } from '@solana/spl-token';
+import { connection, deployerPubkey, payerKeypair, privateKeys, distributionPerWallet, tokenDecimal, buySolAmounts } from './config';
 import { generateDistribution, getCoinData, saveDataToFile, sleep } from "./utils"
 import {
   GLOBAL,
@@ -11,7 +11,7 @@ import {
   PUMP_FUN_ACCOUNT,
   PUMP_FUN_PROGRAM,
   UNIT_PRICE,
-  UNIT_BUDGET
+  UNIT_BUDGET,
 } from './constants';
 import { bundle } from './executor/jito';
 import base58 from 'bs58';
@@ -28,34 +28,25 @@ async function buy(
     const transactions: VersionedTransaction[] = []
 
     console.log("Payer wallet public key is", payerKeypair.publicKey.toBase58())
-    // Get coin data
-    const coinData = await getCoinData(mintStr);
-    console.log("🚀 ~ coinData:", coinData)
-
-    if (!coinData) {
-      console.log("Failed to retrieve coin data...");
-      return;
-    }
-    if(keypairs.length !== solIns.length){
+    
+    if (keypairs.length !== solIns.length) {
       console.log("Number of wallets doesn not match")
       return
     }
-
+    // await sleep(3000)                                                                   //  here's delay, it's really unnecessay
     for (let i = 0; i < keypairs.length; i++) {
       const buyer = Keypair.fromSecretKey(base58.decode(keypairs[i]))
       const owner = buyer.publicKey;
       const tokenMint = new PublicKey(mintStr);
-      let tokenAccount: PublicKey;
+      let tokenAccount: PublicKey = await getAssociatedTokenAddress(tokenMint, owner)
       let ixs: TransactionInstruction[] = [
-        // ComputeBudgetProgram.setComputeUnitPrice({ microLamports: UNIT_PRICE }),
-        // ComputeBudgetProgram.setComputeUnitLimit({ units: UNIT_BUDGET })
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: UNIT_PRICE }),
+        ComputeBudgetProgram.setComputeUnitLimit({ units: UNIT_BUDGET })
       ];
 
       // Attempt to retrieve token account, otherwise create associated token account
       try {
-        tokenAccount = await getAssociatedTokenAddress(tokenMint, owner)
         const info = await connection.getAccountInfo(tokenAccount)
-        console.log("🚀 ~ info:", info)
         if (!info) {
           ixs.push(
             createAssociatedTokenAccountInstruction(
@@ -71,18 +62,15 @@ async function buy(
         return
       }
 
-      // Calculate tokens out
-      const virtualSolReserves = coinData.virtual_sol_reserves;
-      const virtualTokenReserves = coinData.virtual_token_reserves;
       const solIn = solIns[i]
-
       const solInLamports = solIn * LAMPORTS_PER_SOL;
-      const tokenOut = Math.round(solInLamports * virtualTokenReserves / virtualSolReserves);
+      const tokenOut = Math.round(solInLamports / 30 * 10 ** 6)
+      const TRADE_PROGRAM_ID = new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
+      const BONDING_ADDR = new Uint8Array([98, 111, 110, 100, 105, 110, 103, 45, 99, 117, 114, 118, 101]);
 
-      // Define account keys required for the swap
-      const MINT = new PublicKey(coinData.mint);
-      const BONDING_CURVE = new PublicKey(coinData.bonding_curve);
-      const ASSOCIATED_BONDING_CURVE = new PublicKey(coinData.associated_bonding_curve);
+      const [bonding] = PublicKey.findProgramAddressSync([BONDING_ADDR, tokenMint.toBuffer()], TRADE_PROGRAM_ID);
+      const [assoc_bonding] = PublicKey.findProgramAddressSync([bonding.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), tokenMint.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID);
+
       const ASSOCIATED_USER = tokenAccount;
       const USER = owner;
 
@@ -90,9 +78,9 @@ async function buy(
       const keys = [
         { pubkey: GLOBAL, isSigner: false, isWritable: false },
         { pubkey: FEE_RECIPIENT, isSigner: false, isWritable: true },
-        { pubkey: MINT, isSigner: false, isWritable: false },
-        { pubkey: BONDING_CURVE, isSigner: false, isWritable: true },
-        { pubkey: ASSOCIATED_BONDING_CURVE, isSigner: false, isWritable: true },
+        { pubkey: tokenMint, isSigner: false, isWritable: false },
+        { pubkey: bonding, isSigner: false, isWritable: true },
+        { pubkey: assoc_bonding, isSigner: false, isWritable: true },
         { pubkey: ASSOCIATED_USER, isSigner: false, isWritable: true },
         { pubkey: USER, isSigner: true, isWritable: true },
         { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
@@ -104,7 +92,7 @@ async function buy(
 
       function calc_slippage_up(sol_amount: number, slippage: number): number {
         const lamports = sol_amount * LAMPORTS_PER_SOL;
-        return Math.round(lamports * (1 + slippage) + lamports * (1 + slippage) / 1000);
+        return Math.round(lamports  / 1000 * (1 + slippage) + lamports  / 1000 * (1 + slippage));
       }
 
       const instruction_buf = Buffer.from('66063d1201daebea', 'hex');
@@ -121,12 +109,12 @@ async function buy(
       })
 
       ixs.push(swapInstruction)
-      const blockhash = (await connection.getLatestBlockhash()).blockhash
+      const blockhash = (await connection.getLatestBlockhash("confirmed")).blockhash
 
       const tx = new Transaction().add(...ixs)
       tx.recentBlockhash = blockhash
       tx.feePayer = owner
-      console.log(await connection.simulateTransaction(tx))
+      // console.log(await connection.simulateTransaction(tx))
       // Compile message
       const messageV0 = new TransactionMessage({
         payerKey: owner,
@@ -138,18 +126,20 @@ async function buy(
       transaction.sign([buyer])
       transactions.push(transaction)
     }
+
+    setTimeout(() => {
+      bundle(transactions, payerKeypair)
+    }, 500)
     await bundle(transactions, payerKeypair)
-
-
 
     console.log("bundling is done")
     let index = 0
-    const tokenMint = new PublicKey(mint)
+    const tokenMint = new PublicKey(mintStr)
     const kp = Keypair.fromSecretKey(base58.decode(keypairs[0]))
     const ata = await getAssociatedTokenAddress(tokenMint, kp.publicKey)
     console.log("Checking the result")
     while (true) {
-      if (index > 40) {
+      if (index > 60) {
         console.log("token sniping failed")
         return
       }
@@ -162,50 +152,44 @@ async function buy(
         await sleep(2000)
       }
     }
-
-    for (let i = 0; i < keypairs.length; i++) {
-      const kpsToSend: Keypair[] = []
-      for (let j = 0; j < distributionPerWallet; j++)
-        kpsToSend.push(Keypair.generate())
-      saveDataToFile(kpsToSend.map(kp => base58.encode(kp.secretKey)), `data${i}.json`)
-      const mainKp = Keypair.fromSecretKey(base58.decode(keypairs[i]))
-      const ata = await getAssociatedTokenAddress(tokenMint, kp.publicKey)
-      const tokenBalance = (await connection.getTokenAccountBalance(ata)).value.uiAmount
-      const amounts = generateDistribution(tokenBalance!, 0, tokenBalance!, distributionPerWallet, "random")
-      await sendBulkToken(kpsToSend, amounts, mainKp, tokenMint, tokenDecimal)
-      await sleep(5000)
-    }
-
     console.log("Bundling result confirmed, successfully bought")
-
   } catch (e) {
     console.error(e);
   }
 }
 
 
-
-
-async function trackWallet(connection: Connection, mint: string): Promise<void> {
+async function trackWallet(connection: Connection): Promise<void> {
   try {
     const deployer = new PublicKey(deployerPubkey)
-    const wsolAta = await getAssociatedTokenAddress(NATIVE_MINT, deployer)
-    connection.onLogs(
-      wsolAta,
+    const id = connection.onLogs(
+      deployer,
       async ({ logs, err, signature }) => {
         if (err)
           console.log("Transaction failed")
         else {
           console.log(`\nSuccessfully created token: https://solscan.io/tx/${signature}\n`)
-          const buyAmounts = calcSolAmount(totalPercent, initialSolAmount)
-          await buy(privateKeys, mint, buyAmounts, 0.5);
+          let txData: any
+          try {
+            txData = await connection.getParsedTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 })
+            const mint = txData?.transaction.message.accountKeys[1].pubkey.toBase58()
+            console.log("new token mint:", mint)
+
+            if (!mint) {
+              console.log("Mint does not exist")
+              return
+            } else {
+              await buy(privateKeys, mint, buySolAmounts, 10);
+            }
+          } catch (error) {
+            console.log("Error in parsing transaction")
+          }
         }
       },
       "confirmed"
     );
-
   } catch (error) {
-    console.log("Error in tracking wallet \n", error)
+    console.log("Error in tracking wallet")
   }
 }
 
@@ -221,16 +205,7 @@ function calcSolAmount(totalPercent: number, initialSolAmount: number, walletNum
   return buyAmounts
 }
 
-// run this to only buy without tracking, it uses bundling
-// buy(privateKeys, mint, [0.001, 0.001, 0.001], 0.9)
-
-// run this to track wallet's creation tx
-// trackWallet(connection, mint).catch(e => console.log(e))
-
-
-
-
-const distribute = async() => {
+const distribute = async (mint: string) => {
   for (let i = 0; i < privateKeys.length; i++) {
     const kpsToSend: Keypair[] = []
     for (let j = 0; j < distributionPerWallet; j++)
@@ -240,16 +215,26 @@ const distribute = async() => {
     const tokenMint = new PublicKey(mint)
     const ata = await getAssociatedTokenAddress(tokenMint, mainKp.publicKey)
     const tokenBalance = (await connection.getTokenAccountBalance(ata)).value.uiAmount
-    if(!tokenBalance){
+    if (!tokenBalance) {
       console.log("Wallet does not have token in it")
       return
     }
-    const amounts = generateDistribution(tokenBalance! / 3 , (tokenBalance! / distributionPerWallet  / 6), (tokenBalance! / distributionPerWallet  * 2 / 3), distributionPerWallet, "random")   ////////////// need to delete /3 after 
+    const amounts = generateDistribution(tokenBalance! / 3, (tokenBalance! / distributionPerWallet / 6), (tokenBalance! / distributionPerWallet * 2 / 3), distributionPerWallet, "random")   ////////////// need to delete /3 after 
     console.log(" distribute ~ amounts:", amounts)
+
     await sendBulkToken(kpsToSend, amounts, mainKp, tokenMint, tokenDecimal)
     await sleep(5000)
   }
 
   console.log("Bundling result confirmed, successfully bought")
 }
-distribute()
+
+buy(privateKeys, "nChwcE1b3c4pkvqXwmVVtb4HAQL7XCNVnFacR62pump", buySolAmounts, 10);
+// distribute()
+
+// trackWallet(connection).catch(e => console.log(e))
+
+// getMint(connection, new PublicKey("2xUXX5S5WxDs7S5KXWVb74PkDtPtcUwiT7TfMTy8wCrn")).then(info => console.log(info))
+
+
+

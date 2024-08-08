@@ -47,7 +47,7 @@ export async function getCoinData(mintStr: string): Promise<any | null> {
 
     return response.status === 200 || response.status === 304 ? response.data : null;
   } catch (e) {
-    console.error(e);
+    console.error("");
     return null;
   }
 }
@@ -127,7 +127,7 @@ export function generateDistribution(
       }
     }
   }
-  for ( let i = 0; i < distribution.length; i++)
+  for (let i = 0; i < distribution.length; i++)
     distribution[i] = Math.floor(distribution[i])
 
   return distribution;

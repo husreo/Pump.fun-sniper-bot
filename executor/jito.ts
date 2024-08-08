@@ -34,7 +34,7 @@ export async function bundle(txs: VersionedTransaction[], keypair: Keypair) {
 
 export async function bull_dozer(txs: VersionedTransaction[], keypair: Keypair) {
   try {
-    const bundleTransactionLimit = parseInt('5')
+    const bundleTransactionLimit = parseInt('4')
     const jitoKey = Keypair.fromSecretKey(base58.decode(jitoKeyStr))
     const search = searcherClient(blockengingUrl, jitoKey)
 

@@ -63,7 +63,7 @@ async function generateATA(batchSize: number, dropList: Drop[], keypair: Keypair
     }
   }
   const numTransactions = Math.ceil(txInstructions.length / batchSize);
-  for (let i = 0; i < numTransactions; i++) { 
+  for (let i = 0; i < numTransactions; i++) {
     let blockhash = await connection
       .getLatestBlockhash()
       .then((res: any) => res.blockhash);
