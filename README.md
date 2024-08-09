@@ -1,4 +1,4 @@
-# Pump.fun sniper bot
+# Pump fun sniper bot
 
 Decided to share my pump fun trading bot codebase with the world because: 
 
