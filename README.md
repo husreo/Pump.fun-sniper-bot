@@ -1,6 +1,6 @@
-# pump_fun_py
+# Pump.fun sniper bot
 
-Decided to share my pump.fun codebase with the world because: 
+Decided to share my pump fun trading bot codebase with the world because: 
 
 1.) There are too many scammers out there on github and telegram.
 
